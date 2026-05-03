@@ -12,13 +12,17 @@ set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 NAME="qwen36_27b"
 IMAGE="vllm_${NAME}_marlin:latest"
+CONTAINER="vllm_${NAME}"
 
 if [ "$1" = "--build" ] || [ "$1" = "-b" ]; then
 	exec docker build -f "${HERE}/${NAME}.Dockerfile" -t "${IMAGE}" "${HERE}"
 fi
 
+if [ "$1" = "--stop" ]; then
+	exec docker stop "${CONTAINER}"
+fi
+
 PORT="${1:-8010}"
-CONTAINER="vllm_${NAME}_$$"
 trap 'docker stop "${CONTAINER}" >/dev/null 2>&1 || true' EXIT INT TERM
 mkdir -p "${HERE}/cache/${NAME}/torch_compile" "${HERE}/cache/${NAME}/triton"
 docker run --rm --name "${CONTAINER}" --device nvidia.com/gpu=all \
