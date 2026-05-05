@@ -12,7 +12,7 @@ ARG MARLIN_REF=marlin-pad-sub-tile-n
 RUN git clone --depth 1 -b ${MARLIN_REF} \
     https://github.com/noonghunna/vllm.git /vllm-src
 
-FROM vllm/vllm-openai:nightly-7a1eb8ac2ec4ea69338c51dc7afd4b15010abfa8
+FROM vllm/vllm-openai:nightly-01d4d1ad375dc5854779c593eee093bcebb0cada
 
 COPY --from=marlin-src \
     /vllm-src/vllm/model_executor/kernels/linear/mixed_precision/marlin.py \
