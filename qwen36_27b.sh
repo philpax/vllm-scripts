@@ -52,6 +52,8 @@ docker run --rm --name "${CONTAINER}" --device nvidia.com/gpu=all \
 	--max-num-batched-tokens 8192 \
 	--kv-cache-dtype fp8_e5m2 \
 	--trust-remote-code \
+	--chat-template /etc/qwen-froggeric-chat-template.jinja \
+	--default-chat-template-kwargs '{"enable_thinking": false}' \
 	--reasoning-parser qwen3 \
 	--enable-auto-tool-choice \
 	--tool-call-parser qwen3_coder \
