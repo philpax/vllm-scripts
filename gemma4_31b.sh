@@ -4,23 +4,27 @@
 #   ./gemma4_31b.sh [PORT]          # run; PORT defaults to 8030
 #
 # vLLM auto-downloads Intel/gemma-4-31B-it-int4-AutoRound (~21 GB) and the
-# Google MTP drafter google/gemma-4-31B-it-assistant (~0.5B / 0.9 GB BF16)
-# into the mounted HF cache on first boot.
+# z-lab DFlash drafter z-lab/gemma-4-31B-it-dflash (~2.9 GB BF16) into the
+# mounted HF cache on first boot.
 #
-# Engine config mirrors club-3090/models/gemma-4-31b/vllm/compose/dual/int8.yml
-# (TP=2, INT8 per-token-head KV via vendored PR #40391, MTP n=4, 98K ctx
-# default, vision + tools).
+# Engine config mirrors club-3090/models/gemma-4-31b/vllm/compose/dual/dflash-int8.yml
+# (TP=2, INT8 PTH target KV via PR #40391 rebased + drafter BF16 KV pool
+# via PR #42102, DFlash n=7, vision + tools).
 #
-# Context vs. concurrency trade (KV pool is shared across streams):
-#   MAX_NUM_SEQS=4 + MAX_MODEL_LEN=98304   (default — multi-tenant agent)
-#   MAX_NUM_SEQS=2 + MAX_MODEL_LEN=174080  (2 concurrent long-ctx agents)
-#   MAX_NUM_SEQS=1 + MAX_MODEL_LEN=262144  (single-stream, model native max)
+# Context vs. concurrency trade — INT8 PTH expands KV pool but DFlash
+# drafter footprint (2.9 GB BF16, larger than the MTP assistant's 0.5 GB)
+# narrows the headroom relative to the int8.yml path:
+#   MAX_NUM_SEQS=2 + MAX_MODEL_LEN=65536   (default — code-optimal multi-tenant)
+#   MAX_NUM_SEQS=1 + MAX_MODEL_LEN=131072  (single-stream long-ctx)
+#   MAX_NUM_SEQS=1 + MAX_MODEL_LEN=262144  (model native max; ~168K effective
+#                                            KV pool — requests >168K reject)
 #
-# KV format notes (do NOT change without re-reading gemma4_31b.Dockerfile):
-#   - int8_per_token_head is the only PTH variant that runs on Ampere SM 8.6.
-#     fp8_e5m2 hits a Gemma 4 allowlist assert; fp8_e4m3 needs Triton fp8e4nv
-#     which Ampere doesn't implement. Override KV_DTYPE=fp8_per_token_head
-#     only on Ada/Blackwell.
+# Why DFlash over Google MTP: the lighter int8.yml extraction we had before
+# degenerated into multilingual garbage on the 4-7th turn of any chat with
+# short replies. Same KV format (INT8 PTH), same target weights — only the
+# drafter + the surrounding overlay set differs. DFlash carries club-3090's
+# PR #42102 fix for the spec-decode + INT8 PTH coexistence bug that the
+# raw PR #40391 rebase doesn't.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 NAME="gemma4_31b"
@@ -55,17 +59,18 @@ docker run --rm --name "${CONTAINER}" --device nvidia.com/gpu=all \
 	"${IMAGE}" \
 	--model Intel/gemma-4-31B-it-int4-AutoRound \
 	--served-model-name gemma-4-31b-autoround \
+	--dtype bfloat16 \
 	--tensor-parallel-size 2 \
 	--disable-custom-all-reduce \
-	--max-model-len "${MAX_MODEL_LEN:-98304}" \
+	--max-model-len "${MAX_MODEL_LEN:-65536}" \
 	--gpu-memory-utilization "${GPU_MEMORY_UTILIZATION:-0.95}" \
-	--max-num-seqs "${MAX_NUM_SEQS:-4}" \
+	--max-num-seqs "${MAX_NUM_SEQS:-2}" \
 	--max-num-batched-tokens 4096 \
 	--kv-cache-dtype "${KV_DTYPE:-int8_per_token_head}" \
 	--trust-remote-code \
 	--enable-auto-tool-choice \
 	--tool-call-parser gemma4 \
 	--chat-template /vllm-workspace/examples/tool_chat_template_gemma4.jinja \
-	--speculative-config '{"model":"google/gemma-4-31B-it-assistant","num_speculative_tokens":4}' \
+	--speculative-config '{"method":"dflash","model":"z-lab/gemma-4-31B-it-dflash","num_speculative_tokens":7}' \
 	--host 0.0.0.0 \
 	--port 8000
